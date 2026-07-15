@@ -2,17 +2,9 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>JS Wolfenstein-like Engine</title>
+<title>JS Doom-like Engine</title>
 <style>
-  body {
-    margin:0;
-    background:#000;
-    overflow:hidden;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    height:100vh;
-  }
+  body { margin:0; background:#000; overflow:hidden; display:flex; justify-content:center; align-items:center; height:100vh; }
   canvas { background:#222; }
 </style>
 </head>
@@ -27,7 +19,7 @@ const ctx = canvas.getContext("2d");
 const W = canvas.width;
 const H = canvas.height;
 
-// --- Map (1 = wall, 0 = empty) ---
+// --- Map ---
 const map = [
   "111111111111",
   "1..........1",
@@ -37,7 +29,6 @@ const map = [
   "1..........1",
   "111111111111"
 ];
-
 const MAP_W = map[0].length;
 const MAP_H = map.length;
 
@@ -47,6 +38,7 @@ let py = 3.5;
 let pa = 0.0;
 let fov = Math.PI / 3;
 let moveSpeed = 3.0;
+let rotSpeed = 2.5;
 
 // --- Input ---
 const keys = {};
@@ -72,33 +64,111 @@ function isWall(x, y) {
   return map[Math.floor(y)][Math.floor(x)] === "1";
 }
 
-// --- Raycast ---
 function castRay(rayAngle) {
   rayAngle = (rayAngle + Math.PI * 2) % (Math.PI * 2);
 
   const sin = Math.sin(rayAngle);
   const cos = Math.cos(rayAngle);
 
-  const step = 0.02;
   let dist = 0;
+  let hit = false;
 
+  const step = 0.02;
   for (let t = 0; t < 20; t += step) {
     const x = px + cos * t;
     const y = py + sin * t;
     if (isWall(x, y)) {
       dist = t;
+      hit = true;
       break;
     }
   }
 
+  if (!hit) return { dist: 20 };
+
   const diff = rayAngle - pa;
   dist *= Math.cos(diff);
 
-  return dist;
+  return { dist };
 }
 
-// --- Movement ---
+// --- Game Loop ---
+let lastTime = performance.now();
+
 function update(dt) {
+  // WASD relative to facing direction
   let dx = 0, dy = 0;
 
-  if (
+  const forward = keys["w"];
+  const backward = keys["s"];
+  const left = keys["a"];
+  const right = keys["d"];
+
+  if (forward) {
+    dx += Math.cos(pa) * moveSpeed * dt;
+    dy += Math.sin(pa) * moveSpeed * dt;
+  }
+  if (backward) {
+    dx -= Math.cos(pa) * moveSpeed * dt;
+    dy -= Math.sin(pa) * moveSpeed * dt;
+  }
+  if (left) {
+    dx += Math.cos(pa - Math.PI/2) * moveSpeed * dt;
+    dy += Math.sin(pa - Math.PI/2) * moveSpeed * dt;
+  }
+  if (right) {
+    dx += Math.cos(pa + Math.PI/2) * moveSpeed * dt;
+    dy += Math.sin(pa + Math.PI/2) * moveSpeed * dt;
+  }
+
+  const nx = px + dx;
+  const ny = py + dy;
+
+  if (!isWall(nx, py)) px = nx;
+  if (!isWall(px, ny)) py = ny;
+}
+
+function render() {
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#202040";
+  ctx.fillRect(0, 0, W, H/2);
+
+  ctx.fillStyle = "#303030";
+  ctx.fillRect(0, H/2, W, H/2);
+
+  const numRays = W;
+  const halfH = H / 2;
+
+  for (let x = 0; x < numRays; x++) {
+    const rayScreenPos = (x / numRays) - 0.5;
+    const rayAngle = pa + rayScreenPos * fov;
+
+    const { dist } = castRay(rayAngle);
+
+    const wallHeight = Math.min(H, (1.0 / dist) * 300);
+
+    const shade = Math.max(0, 1 - dist / 10);
+    const c = Math.floor(200 * shade);
+    ctx.fillStyle = `rgb(${c},${c},${c})`;
+
+    ctx.fillRect(x, halfH - wallHeight / 2, 1, wallHeight);
+  }
+}
+
+function loop(t) {
+  const dt = (t - lastTime) / 1000;
+  lastTime = t;
+
+  update(dt);
+  render();
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+
+</body>
+</html>
