@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>JS Doom-like Engine with Ledges</title>
+<title>JS Doom-like Engine with Smooth Ledges</title>
 <style>
   body {
     margin:0;
@@ -27,8 +27,8 @@ const ctx = canvas.getContext("2d");
 const W = canvas.width;
 const H = canvas.height;
 
-// --- World data ---
-// walls: 1 = wall, 0 = empty
+// --- World Data ---
+// Walls
 const walls = [
   "111111111111",
   "1..........1",
@@ -39,7 +39,7 @@ const walls = [
   "111111111111"
 ];
 
-// floors: numbers = floor height level (0 = base, 1 = raised, etc.)
+// Floor heights (0 = normal, 1 = raised)
 const floors = [
   "000000000000",
   "000000000000",
@@ -69,7 +69,8 @@ function isWall(x, y) {
 let px = 3.5;
 let py = 3.5;
 let playerHeight = 0.5;
-let pz = getFloor(px, py) + playerHeight; // eye height
+let pz = getFloor(px, py) + playerHeight;
+let targetPZ = pz; // smooth transition target
 let pa = 0.0;
 let fov = Math.PI / 3;
 let moveSpeed = 3.0;
@@ -79,7 +80,7 @@ const keys = {};
 window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
 window.addEventListener("keyup",   e => keys[e.key.toLowerCase()] = false);
 
-// --- Mouse look ---
+// --- Mouse Look ---
 let mouseSensitivity = 0.003;
 
 canvas.addEventListener("click", () => {
@@ -92,7 +93,7 @@ document.addEventListener("mousemove", e => {
   }
 });
 
-// --- Raycast with floor/ceiling ---
+// --- Raycast ---
 function castRay(rayAngle) {
   rayAngle = (rayAngle + Math.PI * 2) % (Math.PI * 2);
 
@@ -117,23 +118,19 @@ function castRay(rayAngle) {
   }
 
   if (!hit) {
-    return {
-      dist: 20,
-      floor: 0,
-      ceil: 2
-    };
+    return { dist: 20, floor: 0, ceil: 2 };
   }
 
   const diff = rayAngle - pa;
   dist *= Math.cos(diff);
 
   const floor = getFloor(hitX, hitY);
-  const ceil = floor + 2.0; // constant ceiling height above floor
+  const ceil = floor + 2.0;
 
   return { dist, floor, ceil };
 }
 
-// --- Movement with stepping ---
+// --- Movement ---
 function update(dt) {
   let dx = 0, dy = 0;
 
@@ -166,14 +163,17 @@ function update(dt) {
   const newFloor = getFloor(nx, ny);
   const stepHeight = newFloor - currentFloor;
 
-  // allow small steps (ledges)
   const maxStep = 0.6;
 
   if (!isWall(nx, ny) && Math.abs(stepHeight) <= maxStep) {
     px = nx;
     py = ny;
-    pz = newFloor + playerHeight;
+    targetPZ = newFloor + playerHeight; // smooth transition target
   }
+
+  // Smooth Z transition
+  const smoothSpeed = 10.0;
+  pz += (targetPZ - pz) * dt * smoothSpeed;
 }
 
 // --- Render ---
@@ -191,51 +191,30 @@ function render() {
     const ray = castRay(rayAngle);
     const dist = ray.dist;
 
-    // vertical projection
     const wallTop = halfH - ((ray.ceil - pz) / dist) * 300;
     const wallBottom = halfH - ((ray.floor - pz) / dist) * 300;
 
-    // ceiling above wall
+    // Ceiling
     ctx.fillStyle = "#202040";
     ctx.fillRect(x, 0, 1, wallTop);
 
-    // wall
+    // Wall shading
     const shade = Math.max(0, 1 - dist / 10);
     const c = Math.floor(200 * shade);
     ctx.fillStyle = `rgb(${c},${c},${c})`;
     ctx.fillRect(x, wallTop, 1, wallBottom - wallTop);
 
-    // floor below wall
-    ctx.fillStyle = "#303030";
+    // Ledge edge (visual lip)
+    if (ray.floor !== getFloor(px, py)) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(x, wallBottom - 2, 1, 2);
+    }
+
+    // Floor shading based on height
+    const floorShade = Math.min(255, 80 + ray.floor * 120);
+    ctx.fillStyle = `rgb(${floorShade}, ${floorShade}, ${floorShade})`;
     ctx.fillRect(x, wallBottom, 1, H - wallBottom);
   }
-
-  // simple minimap
-  const scale = 10;
-  ctx.save();
-  ctx.translate(10, 10);
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      if (walls[y][x] === "1") ctx.fillStyle = "#888";
-      else ctx.fillStyle = "#222";
-      ctx.fillRect(x * scale, y * scale, scale, scale);
-    }
-  }
-  // show raised floor area
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      const f = getFloor(x + 0.1, y + 0.1);
-      if (f > 0) {
-        ctx.fillStyle = "#00aa00";
-        ctx.fillRect(x * scale + 2, y * scale + 2, scale - 4, scale - 4);
-      }
-    }
-  }
-  ctx.fillStyle = "#ff0000";
-  ctx.beginPath();
-  ctx.arc(px * scale, py * scale, 3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
 }
 
 // --- Loop ---
