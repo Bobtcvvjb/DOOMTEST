@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>JS Doom-like Engine</title>
+  <style>
+    body { margin:0; background:#000; overflow:hidden; }
+    canvas { display:block; margin:0 auto; background:#222; }
+  </style>
+</head>
+<body>
+<canvas id="game" width="640" height="400"></canvas>
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width;
+const H = canvas.height;
+
+// --- Map (1 = wall, 0 = empty) ---
+const map = [
+  "111111111111",
+  "1..........1",
+  "1..111.....1",
+  "1..........1",
+  "1.....111..1",
+  "1..........1",
+  "111111111111"
+];
+const MAP_W = map[0].length;
+const MAP_H = map.length;
+const TILE = 1.0;
+
+// --- Player ---
+let px = 3.5;   // x in map units
+let py = 3.5;   // y in map units
+let pa = 0.0;   // angle (radians)
+let fov = Math.PI / 3; // 60 degrees
+let moveSpeed = 3.0;   // units per second
+let rotSpeed = 2.5;    // radians per second
+
+// --- Input ---
+const keys = {};
+window.addEventListener("keydown", e => keys[e.key] = true);
+window.addEventListener("keyup",   e => keys[e.key] = false);
+
+// --- Helpers ---
+function isWall(x, y) {
+  if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return true;
+  return map[Math.floor(y)][Math.floor(x)] === "1";
+}
+
+// DDA raycast
+function castRay(rayAngle) {
+  // Normalize angle
+  rayAngle = (rayAngle + Math.PI * 2) % (Math.PI * 2);
+
+  const sin = Math.sin(rayAngle);
+  const cos = Math.cos(rayAngle);
+
+  let dist = 0;
+  let hit = false;
+  let hitX = 0, hitY = 0;
+
+  // Step small increments until hit wall or max distance
+  const step = 0.02;
+  for (let t = 0; t < 20; t += step) {
+    const x = px + cos * t;
+    const y = py + sin * t;
+    if (isWall(x, y)) {
+      dist = t;
+      hit = true;
+      hitX = x;
+      hitY = y;
+      break;
+    }
+  }
+
+  if (!hit) return { dist: 20, hitX, hitY };
+
+  // Fix fish-eye by projecting distance onto view direction
+  const diff = rayAngle - pa;
+  dist *= Math.cos(diff);
+
+  return { dist, hitX, hitY };
+}
+
+// --- Game loop ---
+let lastTime = performance.now();
+
+function update(dt) {
+  // Rotation: left/right arrows or A/D
+  if (keys["ArrowLeft"] || keys["a"]) pa -= rotSpeed * dt;
+  if (keys["ArrowRight"] || keys["d"]) pa += rotSpeed * dt;
+
+  // Movement: W/S or Up/Down
+  let dx = 0, dy = 0;
+  const forward = (keys["w"] || keys["ArrowUp"]);
+  const backward = (keys["s"] || keys["ArrowDown"]);
+
+  if (forward) {
+    dx += Math.cos(pa) * moveSpeed * dt;
+    dy += Math.sin(pa) * moveSpeed * dt;
+  }
+  if (backward) {
+    dx -= Math.cos(pa) * moveSpeed * dt;
+    dy -= Math.sin(pa) * moveSpeed * dt;
+  }
+
+  // Simple collision
+  const nx = px + dx;
+  const ny = py + dy;
+  if (!isWall(nx, py)) px = nx;
+  if (!isWall(px, ny)) py = ny;
+}
+
+function render() {
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, W, H);
+
+  // Sky
+  ctx.fillStyle = "#202040";
+  ctx.fillRect(0, 0, W, H / 2);
+
+  // Floor
+  ctx.fillStyle = "#303030";
+  ctx.fillRect(0, H / 2, W, H / 2);
+
+  const numRays = W;
+  const halfH = H / 2;
+
+  for (let x = 0; x < numRays; x++) {
+    const rayScreenPos = (x / numRays) - 0.5;
+    const rayAngle = pa + rayScreenPos * fov;
+
+    const { dist } = castRay(rayAngle);
+
+    // Wall height
+    const wallHeight = Math.min(H, (1.0 / dist) * 300);
+
+    // Simple distance-based shading
+    const shade = Math.max(0, 1 - dist / 10);
+    const c = Math.floor(200 * shade);
+    ctx.fillStyle = `rgb(${c},${c},${c})`;
+
+    ctx.fillRect(x, halfH - wallHeight / 2, 1, wallHeight);
+  }
+
+  // Mini-map
+  const scale = 10;
+  ctx.save();
+  ctx.translate(10, 10);
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      if (map[y][x] === "1") {
+        ctx.fillStyle = "#888";
+      } else {
+        ctx.fillStyle = "#222";
+      }
+      ctx.fillRect(x * scale, y * scale, scale, scale);
+    }
+  }
+  // Player on minimap
+  ctx.fillStyle = "#ff0000";
+  ctx.beginPath();
+  ctx.arc(px * scale, py * scale, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function loop(t) {
+  const dt = (t - lastTime) / 1000;
+  lastTime = t;
+
+  update(dt);
+  render();
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
+
