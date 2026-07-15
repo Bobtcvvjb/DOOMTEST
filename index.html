@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>JS Doom-like Engine with Smooth Ledges</title>
+<title>JS Wolfenstein-like Engine</title>
 <style>
   body {
     margin:0;
@@ -27,9 +27,8 @@ const ctx = canvas.getContext("2d");
 const W = canvas.width;
 const H = canvas.height;
 
-// --- World Data ---
-// Walls
-const walls = [
+// --- Map (1 = wall, 0 = empty) ---
+const map = [
   "111111111111",
   "1..........1",
   "1..111.....1",
@@ -39,38 +38,12 @@ const walls = [
   "111111111111"
 ];
 
-// Floor heights (0 = normal, 1 = raised)
-const floors = [
-  "000000000000",
-  "000000000000",
-  "000111000000",
-  "000111000000",
-  "000111000000",
-  "000000000000",
-  "000000000000"
-];
-
-const MAP_W = walls[0].length;
-const MAP_H = walls.length;
-
-function getFloor(x, y) {
-  if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return 0;
-  const ch = floors[Math.floor(y)][Math.floor(x)];
-  const level = parseInt(ch, 10) || 0;
-  return level * 0.5; // each level = 0.5 units high
-}
-
-function isWall(x, y) {
-  if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return true;
-  return walls[Math.floor(y)][Math.floor(x)] === "1";
-}
+const MAP_W = map[0].length;
+const MAP_H = map.length;
 
 // --- Player ---
 let px = 3.5;
 let py = 3.5;
-let playerHeight = 0.5;
-let pz = getFloor(px, py) + playerHeight;
-let targetPZ = pz; // smooth transition target
 let pa = 0.0;
 let fov = Math.PI / 3;
 let moveSpeed = 3.0;
@@ -93,6 +66,12 @@ document.addEventListener("mousemove", e => {
   }
 });
 
+// --- Helpers ---
+function isWall(x, y) {
+  if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return true;
+  return map[Math.floor(y)][Math.floor(x)] === "1";
+}
+
 // --- Raycast ---
 function castRay(rayAngle) {
   rayAngle = (rayAngle + Math.PI * 2) % (Math.PI * 2);
@@ -102,136 +81,24 @@ function castRay(rayAngle) {
 
   const step = 0.02;
   let dist = 0;
-  let hit = false;
-  let hitX = 0, hitY = 0;
 
   for (let t = 0; t < 20; t += step) {
     const x = px + cos * t;
     const y = py + sin * t;
     if (isWall(x, y)) {
       dist = t;
-      hit = true;
-      hitX = x;
-      hitY = y;
       break;
     }
-  }
-
-  if (!hit) {
-    return { dist: 20, floor: 0, ceil: 2 };
   }
 
   const diff = rayAngle - pa;
   dist *= Math.cos(diff);
 
-  const floor = getFloor(hitX, hitY);
-  const ceil = floor + 2.0;
-
-  return { dist, floor, ceil };
+  return dist;
 }
 
 // --- Movement ---
 function update(dt) {
   let dx = 0, dy = 0;
 
-  const forward = keys["w"];
-  const backward = keys["s"];
-  const left = keys["a"];
-  const right = keys["d"];
-
-  if (forward) {
-    dx += Math.cos(pa) * moveSpeed * dt;
-    dy += Math.sin(pa) * moveSpeed * dt;
-  }
-  if (backward) {
-    dx -= Math.cos(pa) * moveSpeed * dt;
-    dy -= Math.sin(pa) * moveSpeed * dt;
-  }
-  if (left) {
-    dx += Math.cos(pa - Math.PI/2) * moveSpeed * dt;
-    dy += Math.sin(pa - Math.PI/2) * moveSpeed * dt;
-  }
-  if (right) {
-    dx += Math.cos(pa + Math.PI/2) * moveSpeed * dt;
-    dy += Math.sin(pa + Math.PI/2) * moveSpeed * dt;
-  }
-
-  const nx = px + dx;
-  const ny = py + dy;
-
-  const currentFloor = getFloor(px, py);
-  const newFloor = getFloor(nx, ny);
-  const stepHeight = newFloor - currentFloor;
-
-  const maxStep = 0.6;
-
-  if (!isWall(nx, ny) && Math.abs(stepHeight) <= maxStep) {
-    px = nx;
-    py = ny;
-    targetPZ = newFloor + playerHeight; // smooth transition target
-  }
-
-  // Smooth Z transition
-  const smoothSpeed = 10.0;
-  pz += (targetPZ - pz) * dt * smoothSpeed;
-}
-
-// --- Render ---
-function render() {
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, W, H);
-
-  const numRays = W;
-  const halfH = H / 2;
-
-  for (let x = 0; x < numRays; x++) {
-    const rayScreenPos = (x / numRays) - 0.5;
-    const rayAngle = pa + rayScreenPos * fov;
-
-    const ray = castRay(rayAngle);
-    const dist = ray.dist;
-
-    const wallTop = halfH - ((ray.ceil - pz) / dist) * 300;
-    const wallBottom = halfH - ((ray.floor - pz) / dist) * 300;
-
-    // Ceiling
-    ctx.fillStyle = "#202040";
-    ctx.fillRect(x, 0, 1, wallTop);
-
-    // Wall shading
-    const shade = Math.max(0, 1 - dist / 10);
-    const c = Math.floor(200 * shade);
-    ctx.fillStyle = `rgb(${c},${c},${c})`;
-    ctx.fillRect(x, wallTop, 1, wallBottom - wallTop);
-
-    // Ledge edge (visual lip)
-    if (ray.floor !== getFloor(px, py)) {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(x, wallBottom - 2, 1, 2);
-    }
-
-    // Floor shading based on height
-    const floorShade = Math.min(255, 80 + ray.floor * 120);
-    ctx.fillStyle = `rgb(${floorShade}, ${floorShade}, ${floorShade})`;
-    ctx.fillRect(x, wallBottom, 1, H - wallBottom);
-  }
-}
-
-// --- Loop ---
-let lastTime = performance.now();
-
-function loop(t) {
-  const dt = (t - lastTime) / 1000;
-  lastTime = t;
-
-  update(dt);
-  render();
-
-  requestAnimationFrame(loop);
-}
-
-requestAnimationFrame(loop);
-</script>
-
-</body>
-</html>
+  if (
